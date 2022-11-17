@@ -83,100 +83,39 @@ pub enum DispatchError {
 	Other(Vec<u8>),
 }
 
-impl DispatchError {
-	/// Attempt to decode a runtime DispatchError, returning either the [`ModuleError`] it decodes
-	/// to, along with additional details on the error, or returning the raw bytes if it could not
-	/// be decoded.
-	pub fn decode_from<'a>(bytes: impl Into<Cow<'a, [u8]>>, metadata: &Metadata) -> Self {
-		let bytes = bytes.into();
-
-		let dispatch_error_ty_id = match metadata.dispatch_error_ty() {
-			Some(id) => id,
-			None => {
-				warn!("Can't decode error: sp_runtime::DispatchError was not found in Metadata");
-				return DispatchError::Other(bytes.into_owned())
-			},
-		};
-
-		let dispatch_error_ty = match metadata.types().resolve(dispatch_error_ty_id) {
-			Some(ty) => ty,
-			None => {
-				warn!("Can't decode error: sp_runtime::DispatchError type ID doesn't resolve to a known type");
-				return DispatchError::Other(bytes.into_owned())
-			},
-		};
-
-		let variant = match dispatch_error_ty.type_def() {
-			TypeDef::Variant(var) => var,
-			_ => {
-				warn!("Can't decode error: sp_runtime::DispatchError type is not a Variant");
-				return DispatchError::Other(bytes.into_owned())
-			},
-		};
-
-		let module_variant_idx =
-			variant.variants().iter().find(|v| v.name() == "Module").map(|v| v.index());
-		let module_variant_idx = match module_variant_idx {
-			Some(idx) => idx,
-			None => {
-				warn!("Can't decode error: sp_runtime::DispatchError does not have a 'Module' variant");
-				return DispatchError::Other(bytes.into_owned())
-			},
-		};
-
-		// If the error bytes don't correspond to a ModuleError, just return the bytes.
-		// This is perfectly reasonable and expected, so no logging.
-		if bytes[0] != module_variant_idx {
-			return DispatchError::Other(bytes.into_owned())
-		}
-
-		// The remaining bytes are the module error, all being well:
-		let bytes = &bytes[1..];
-
-		// The oldest and second oldest type of error decode to this shape:
-		#[derive(Decode)]
-		struct LegacyModuleError {
-			index: u8,
-			error: u8,
-		}
-
-		// The newer case expands the error for forward compat:
-		#[derive(Decode)]
-		struct CurrentModuleError {
-			index: u8,
-			error: [u8; 4],
-		}
-
-		// try to decode into the new shape, or the old if that doesn't work
-		let err = match CurrentModuleError::decode(&mut &*bytes) {
-			Ok(e) => e,
-			Err(_) => {
-				let old_e = match LegacyModuleError::decode(&mut &*bytes) {
-					Ok(err) => err,
-					Err(_) => {
-						warn!("Can't decode error: sp_runtime::DispatchError does not match known formats");
-						return DispatchError::Other(bytes.to_vec())
-					},
-				};
-				CurrentModuleError { index: old_e.index, error: [old_e.error, 0, 0, 0] }
-			},
-		};
-
-		let error_details = match metadata.error(err.index, err.error[0]) {
-			Ok(details) => details,
-			Err(_) => {
-				warn!("Can't decode error: sp_runtime::DispatchError::Module details do not match known information");
-				return DispatchError::Other(bytes.to_vec())
-			},
-		};
-
-		DispatchError::Module(ModuleError {
-			pallet: error_details.pallet().to_string(),
-			error: error_details.error().to_string(),
-			description: error_details.docs().to_vec(),
-			error_data: ModuleErrorData { pallet_index: err.index, error: err.error },
-		})
-	}
+impl RuntimeError {
+    /// Converts a `DispatchError` into a subxt error.
+    pub fn from_dispatch(metadata: &Metadata, error: DispatchError) -> Result<Self, Error> {
+        match error {
+            DispatchError::Module(ModuleError {
+                index,
+                error,
+                message: _,
+                pallet,
+                description,
+                error_data,
+            }) => {
+                let error = metadata.error(index, error[0])?;
+                Ok(Self::Module(PalletError {
+                    pallet: error.pallet().to_string(),
+                    error: error.error().to_string(),
+                    description: error.description().to_vec(),
+                }))
+            }
+            DispatchError::BadOrigin => Ok(Self::BadOrigin),
+            DispatchError::CannotLookup => Ok(Self::CannotLookup),
+            DispatchError::ConsumerRemaining => Ok(Self::ConsumerRemaining),
+            DispatchError::TooManyConsumers => Ok(Self::TooManyConsumers),
+            DispatchError::NoProviders => Ok(Self::NoProviders),
+            DispatchError::Arithmetic(_math_error) => Ok(Self::Other("math_error".into())),
+            DispatchError::Token(_token_error) => Ok(Self::Other("token error".into())),
+            DispatchError::Transactional(_transactional_error) => {
+                Ok(Self::Other("transactional error".into()))
+            }
+            DispatchError::Other(msg) => Ok(Self::Other(msg.to_string())),
+            _ => todo!(),
+        }
+    }
 }
 
 /// Block error

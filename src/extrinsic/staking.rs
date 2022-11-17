@@ -17,11 +17,16 @@
 
 //! Extrinsics for `pallet-staking`.
 
+use super::common::*;
 use crate::{Api, RpcClient};
 use ac_compose_macros::compose_extrinsic;
-use ac_primitives::{Balance, CallIndex, GenericAddress, UncheckedExtrinsicV4};
+use ac_primitives::PlainTip;
+use ac_primitives::SubstrateDefaultSignedExtra;
+use ac_primitives::{Balance, CallIndex, ExtrinsicParams, GenericAddress, UncheckedExtrinsicV4};
 use codec::Compact;
+use codec::{Decode, Encode};
 use sp_core::Pair;
+use sp_runtime::AccountId32;
 use sp_runtime::{MultiSignature, MultiSigner};
 
 pub use staking::RewardDestination;
@@ -35,6 +40,12 @@ const STAKING_WITHDRAW_UNBONDED: &str = "withdraw_unbonded";
 const STAKING_NOMINATE: &str = "nominate";
 const STAKING_CHILL: &str = "chill";
 const STAKING_SET_CONTROLLER: &str = "set_controller";
+const PAYOUT_STAKERS: &str = "payout_stakers";
+const FORCE_NEW_ERA: &str = "force_new_era";
+const FORCE_NEW_ERA_ALWAYS: &str = "force_new_era_always";
+const FORCE_NO_ERA: &str = "force_no_era";
+const STAKING_SET_PAYEE: &str = "set_payee";
+const SET_VALIDATOR_COUNT: &str = "set_validator_count";
 
 pub type StakingBondFn =
 	(CallIndex, GenericAddress, Compact<Balance>, RewardDestination<GenericAddress>);
@@ -45,18 +56,35 @@ pub type StakingWithdrawUnbondedFn = (CallIndex, u32);
 pub type StakingNominateFn = (CallIndex, Vec<GenericAddress>);
 pub type StakingChillFn = CallIndex;
 pub type StakingSetControllerFn = (CallIndex, GenericAddress);
+pub type StakingPayoutStakersFn = (CallIndex, PayoutStakers);
+pub type StakingForceNewEraFn = (CallIndex, ForceEra);
+pub type StakingForceNewEraAlwaysFn = (CallIndex, ForceEra);
+pub type StakingForceNoEraFn = (CallIndex, ForceEra);
+pub type StakingSetPayeeFn = (CallIndex,GenericAddress);
+pub type StakingSetValidatorCountFn = (CallIndex, u32);
 
-pub type StakingBondXt = UncheckedExtrinsicV4<StakingBondFn>;
-pub type StakingBondExtraXt = UncheckedExtrinsicV4<StakingBondExtraFn>;
-pub type StakingUnbondXt = UncheckedExtrinsicV4<StakingUnbondFn>;
-pub type StakingRebondXt = UncheckedExtrinsicV4<StakingRebondFn>;
-pub type StakingWithdrawUnbondedXt = UncheckedExtrinsicV4<StakingWithdrawUnbondedFn>;
-pub type StakingNominateXt = UncheckedExtrinsicV4<StakingNominateFn>;
-pub type StakingChillXt = UncheckedExtrinsicV4<StakingChillFn>;
-pub type StakingSetControllerXt = UncheckedExtrinsicV4<StakingSetControllerFn>;
+pub type StakingBondXt<SignedExtra> = UncheckedExtrinsicV4<StakingBondFn, SignedExtra>;
+pub type StakingBondExtraXt<SignedExtra> = UncheckedExtrinsicV4<StakingBondExtraFn, SignedExtra>;
+pub type StakingUnbondXt<SignedExtra> = UncheckedExtrinsicV4<StakingUnbondFn, SignedExtra>;
+pub type StakingRebondXt<SignedExtra> = UncheckedExtrinsicV4<StakingRebondFn, SignedExtra>;
+pub type StakingWithdrawUnbondedXt<SignedExtra> =
+    UncheckedExtrinsicV4<StakingWithdrawUnbondedFn, SignedExtra>;
+pub type StakingNominateXt<SignedExtra> = UncheckedExtrinsicV4<StakingNominateFn, SignedExtra>;
+pub type StakingChillXt<SignedExtra> = UncheckedExtrinsicV4<StakingChillFn, SignedExtra>;
+pub type StakingSetControllerXt<SignedExtra> =
+    UncheckedExtrinsicV4<StakingSetControllerFn, SignedExtra>;
+pub type StakingPayoutStakersXt<SignedExtra> =
+    UncheckedExtrinsicV4<StakingPayoutStakersFn, SignedExtra>;
+pub type StakingForceNewEraXt<SignedExtra> =
+    UncheckedExtrinsicV4<StakingForceNewEraFn, SignedExtra>;
+pub type StakingForceNewEraAlwaysXt<SignedExtra> =
+    UncheckedExtrinsicV4<StakingForceNewEraAlwaysFn, SignedExtra>;
+pub type StakingForceNoEraXt<SignedExtra> = UncheckedExtrinsicV4<StakingForceNoEraFn, SignedExtra>;
+pub type StakingSetPayeeXt<SignedExtra> = UncheckedExtrinsicV4<StakingSetPayeeFn, SignedExtra>;
+pub type StakingSetValidatorCountXt<SignedExtra> =UncheckedExtrinsicV4<StakingSetValidatorCountFn, SignedExtra>;
 
 // https://polkadot.js.org/docs/substrate/extrinsics#staking
-impl<P, Client> Api<P, Client>
+impl<P, Client, Params> Api<P, Client, Params>
 where
 	P: Pair,
 	MultiSignature: From<P::Signature>,
